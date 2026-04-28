@@ -29,7 +29,7 @@ This report analyzes archived NYPD shooting incident data from 2006 to 2024. The
 ## Data Loading and Structure
 
 ```{r load-data}
-nypd_raw <- read.csv('/Users/brittanyashaw/Downloads/ARCHIVED_NYPD_Shooting_Incident_Data__Historic_.csv')
+nypd_raw <- read.csv('https://raw.githubusercontent.com/BrittAnn24/msds_projects/refs/heads/main/ARCHIVED_NYPD_Shooting_Incident_Data__Historic_.csv')
 
 cat("Rows:", nrow(nypd_raw), "\n")
 cat("Columns:", ncol(nypd_raw), "\n")
