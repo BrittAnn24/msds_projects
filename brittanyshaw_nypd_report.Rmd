@@ -1,0 +1,166 @@
+---
+title: "NYPD Shooting Incident Analysis (2006-2024)"
+author: "Brittany Shaw"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    highlight: tango
+  pdf_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+```
+
+## Introduction
+
+This report analyzes archived NYPD shooting incident data from 2006 to 2024. The goals are to:
+
+- Understand how shooting frequency varies by **time of day** and **borough**
+- Identify **seasonal and monthly trends** in shooting incidents
+- Build a **linear regression model** to predict shooting counts based on location, time of day, and month/year
+
+---
+
+## Data Loading and Structure
+
+```{r load-data}
+nypd_raw <- read.csv('/Users/brittanyashaw/Downloads/ARCHIVED_NYPD_Shooting_Incident_Data__Historic_.csv')
+
+cat("Rows:", nrow(nypd_raw), "\n")
+cat("Columns:", ncol(nypd_raw), "\n")
+```
+
+---
+
+## Data Preparation
+
+Shooting times are recorded in mixed formats (e.g., `"0:00:00"` and `"01:00:00"`). The hour is extracted by splitting on `":"` and taking the first element, which handles both formats correctly.
+
+```{r wrangle}
+filtered_nypd_df <- nypd_raw %>%
+  rename(Borough = BORO, Date = OCCUR_DATE) %>%
+  mutate(
+    Hour = as.integer(sapply(strsplit(OCCUR_TIME, ":"), function(x) x[1])),
+    time_of_day = case_when(
+      Hour >= 0 & Hour <= 6  ~ "Overnight",
+      Hour >  6 & Hour <= 12 ~ "Morning",
+      Hour > 12 & Hour <= 18 ~ "Afternoon",
+      Hour > 18 & Hour <= 23 ~ "Evening"
+    ),
+    Month = as.integer(format(as.Date(Date, format = "%m/%d/%Y"), "%m")),
+    Season = case_when(
+      Month %in% c(12, 1, 2) ~ "Winter",
+      Month %in% c(3, 4, 5)  ~ "Spring",
+      Month %in% c(6, 7, 8)  ~ "Summer",
+      Month %in% c(9, 10, 11) ~ "Autumn"
+    ),
+    month_year = format(as.Date(Date, format = "%m/%d/%Y"), "%m-%Y")
+  ) %>%
+  group_by(Borough, time_of_day, Season, month_year, Month) %>%
+  summarise(Shooting_Count = n(), .groups = "drop")
+```
+
+---
+
+## Shootings by Time of Day and Borough
+
+The stacked bar chart below shows total shooting counts for each time-of-day window, broken out by borough across the full 2006–2024 period.
+
+```{r plot-time-borough, fig.width=8, fig.height=5}
+ggplot(data = filtered_nypd_df,
+       aes(x = time_of_day, y = Shooting_Count, fill = Borough)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x     = "Time of Day",
+    y     = "Shooting Count",
+    title = "Shootings by Time of Day and Borough, 2006–2024"
+  ) +
+  theme_minimal()
+```
+
+**Key observation:** Overnight hours tend to have the highest concentration of incidents, with Brooklyn and the Bronx accounting for a disproportionately large share. Of note, while Overnight hours are the highest, the Evening hours follow very closely behind. 
+
+---
+
+## Average Monthly Shootings
+
+To remove year-to-year noise and surface seasonal patterns, shooting counts are averaged across all years for each calendar month.
+
+```{r avg-monthly}
+nypd_avg_monthly <- nypd_raw %>%
+  mutate(
+    Date  = as.Date(OCCUR_DATE, format = "%m/%d/%Y"),
+    Month = as.integer(format(Date, "%m")),
+    Year  = as.integer(format(Date, "%Y"))
+  ) %>%
+  group_by(Year, Month) %>%
+  summarise(Shooting_Count = n(), .groups = "drop") %>%
+  group_by(Month) %>%
+  summarise(Avg_Shootings = mean(Shooting_Count))
+```
+
+```{r plot-avg-monthly, fig.width=8, fig.height=5}
+ggplot(data = nypd_avg_monthly, aes(x = Month, y = Avg_Shootings)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  labs(
+    title = "Average Monthly Shootings in NYC (2006–2024)",
+    x     = "Month",
+    y     = "Average Shooting Count"
+  ) +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  theme_minimal()
+```
+
+**Key observation:** Shooting incidents peak in the summer months (June–August) and drop sharply in winter, consistent with seasonal crime patterns reported nationally.
+
+---
+
+## Linear Regression Model
+
+A linear regression model is fit to predict monthly shooting counts using **borough** and **time of day** as predictors. Categorical variables are converted to factors before modeling.
+
+```{r model}
+filtered_nypd_df <- filtered_nypd_df %>%
+  mutate(
+    time_of_day = as.factor(time_of_day),
+    Borough     = as.factor(Borough),
+    Season      = as.factor(Season)
+  )
+
+model <- lm(Shooting_Count ~ Borough + time_of_day,
+            data = filtered_nypd_df)
+
+summary(model)
+```
+
+
+**Interpretation notes:**
+
+- **Borough** coefficients indicate the baseline shooting rate difference relative to the reference borough, The Bronx.
+- **Time of day** coefficients show the additive effect of each window relative to the reference level, Afternoon.
+
+
+## Bias and Limitations
+
+As a resident of New York City, it is possible that I may carry notions regarding which boroughs or time periods are more dangerous that could influence how I interpret these findings. Additionally, this dataset only captures reported incidents. Unreported shootings introduce measurement bias, and policing intensity varies by borough, which may affect reporting rates.
+
+---
+
+## Conclusion
+
+This analysis finds that:
+
+1. **Overnight hours and summer months** are associated with the highest shooting volumes.
+2. **Brooklyn and the Bronx** consistently account for the largest share of incidents across all time windows.
+3. The linear regression model confirms that borough and time of day are both statistically meaningful predictors of shooting count.
+
+Future work could incorporate socioeconomic covariates, spatial clustering, or a time-series model to better capture the autocorrelated structure of monthly counts.
+
+---
+
+*Data source: NYPD Archived Shooting Incident Data (Historic), NYC Open Data.*
